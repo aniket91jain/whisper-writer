@@ -63,7 +63,7 @@ class WhisperWriterApp(QObject):
             self.status_window = StatusWindow()
 
         self.create_tray_icon()
-        self.main_window.show()
+        self.key_listener.start()  # auto-start listening; no need to press Start in the window
 
     def create_tray_icon(self):
         """
@@ -86,7 +86,14 @@ class WhisperWriterApp(QObject):
         tray_menu.addAction(exit_action)
 
         self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
+
+    def _on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.Trigger:  # left-click
+            self.main_window.show()
+            self.main_window.raise_()
+            self.main_window.activateWindow()
 
     def cleanup(self):
         if self.key_listener:

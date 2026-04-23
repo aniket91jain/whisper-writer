@@ -151,6 +151,29 @@ post_processing:
       - ydotool
       - dotool
 
+# LLM post-processing (polish) options
+llm_polish:
+  enabled:
+    value: false
+    type: bool
+    description: "Set to true to pass transcriptions through an LLM for cleanup."
+  model:
+    value: openai/gpt-oss-120b
+    type: str
+    description: "The model to use for polishing (OpenAI-compatible)."
+  base_url:
+    value: https://api.groq.com/openai/v1
+    type: str
+    description: "Base URL for the LLM polish API endpoint."
+  max_tokens:
+    value: 1024
+    type: int
+    description: "Maximum tokens for the LLM response."
+  system_prompt:
+    value: null
+    type: str
+    description: "System prompt sent to the LLM. Set in config.yaml."
+
 # Miscellaneous settings
 misc:
   print_to_terminal:

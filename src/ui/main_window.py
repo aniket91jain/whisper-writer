@@ -44,10 +44,8 @@ class MainWindow(BaseWindow):
         self.main_layout.addStretch(1)
 
     def closeEvent(self, event):
-        """
-        Close the application when the main window is closed.
-        """
-        self.closeApp.emit()
+        event.ignore()
+        self.hide()  # hide to tray; use tray menu → Exit to quit
 
     def startPressed(self):
         """
