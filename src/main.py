@@ -12,6 +12,7 @@ from result_thread import ResultThread
 from ui.main_window import MainWindow
 from ui.settings_window import SettingsWindow
 from ui.status_window import StatusWindow
+from ui.transcript_history_window import TranscriptHistoryWindow
 from transcription import create_local_model
 from input_simulation import InputSimulator
 from utils import ConfigManager
@@ -53,6 +54,8 @@ class WhisperWriterApp(QObject):
         self.local_model = create_local_model() if not model_options.get('use_api') else None
 
         self.result_thread = None
+        self._log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'transcript_log.txt')
+        self._history_window = None
 
         self.main_window = MainWindow()
         self.main_window.openSettings.connect(self.settings_window.show)
@@ -81,6 +84,10 @@ class WhisperWriterApp(QObject):
         settings_action.triggered.connect(self.settings_window.show)
         tray_menu.addAction(settings_action)
 
+        log_action = QAction('View Transcript Log', self.app)
+        log_action.triggered.connect(self._open_transcript_log)
+        tray_menu.addAction(log_action)
+
         exit_action = QAction('Exit', self.app)
         exit_action.triggered.connect(self.exit_app)
         tray_menu.addAction(exit_action)
@@ -91,15 +98,21 @@ class WhisperWriterApp(QObject):
 
     def _on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.Trigger:  # left-click
-            self.main_window.show()
-            self.main_window.raise_()
-            self.main_window.activateWindow()
+            self._open_transcript_log()
 
     def cleanup(self):
         if self.key_listener:
             self.key_listener.stop()
         if self.input_simulator:
             self.input_simulator.cleanup()
+
+    def _open_transcript_log(self):
+        if self._history_window is None:
+            self._history_window = TranscriptHistoryWindow(self._log_path)
+        else:
+            self._history_window._load()
+        self._history_window.show()
+        self._history_window.raise_()
 
     def exit_app(self):
         """

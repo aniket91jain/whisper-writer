@@ -763,6 +763,8 @@ class PynputBackend(InputBackend):
 
     def start(self):
         """Start listening for keyboard and mouse events."""
+        self.stop()  # Always stop existing listeners before creating new ones
+
         if self.keyboard is None or self.mouse is None:
             from pynput import keyboard, mouse
             self.keyboard = keyboard

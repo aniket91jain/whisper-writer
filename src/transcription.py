@@ -1,10 +1,38 @@
 import io
 import os
+import re
 import numpy as np
 import soundfile as sf
 from openai import OpenAI
 
 from utils import ConfigManager
+
+# Phrases Whisper is known to hallucinate on silence or near-silence.
+# Matched case-insensitively against the stripped transcription.
+_WHISPER_HALLUCINATIONS = frozenset({
+    'thank you',
+    'thank you.',
+    'thank you for watching',
+    'thank you for watching.',
+    'thank you for watching!',
+    'thanks for watching.',
+    'thanks for watching!',
+    'société radio-canada',
+    'société radio canada',
+    '[ silence ]',
+    '[silence]',
+    'subtitles by the amara.org community',
+    "sous-titres réalisés para la communauté d'amara.org",
+})
+
+
+def _word_overlap_ratio(source: str, candidate: str) -> float:
+    """Fraction of candidate words that appear in source (case-insensitive)."""
+    source_words = set(re.findall(r'\b[a-zA-Z]+\b', source.lower()))
+    candidate_words = re.findall(r'\b[a-zA-Z]+\b', candidate.lower())
+    if not candidate_words:
+        return 1.0
+    return sum(1 for w in candidate_words if w in source_words) / len(candidate_words)
 
 
 def create_local_model():
@@ -109,17 +137,47 @@ def llm_polish(transcription):
         response = client.chat.completions.create(
             model=config['model'],
             max_tokens=config.get('max_tokens') or 1024,
+            temperature=config.get('temperature', 0.2),
             messages=[
                 {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': transcription},
+                {'role': 'user', 'content': f'[TRANSCRIPT]\n{transcription}\n[/TRANSCRIPT]'},
             ],
         )
         polished = response.choices[0].message.content
         ConfigManager.console_print(f'LLM polish: raw="{transcription.strip()}" → polished="{polished}"')
 
-        # Guard: if output is 3x+ longer than input, the model hallucinated — return raw
+        try:
+            import datetime
+            log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'transcript_log.txt')
+            with open(log_path, 'a', encoding='utf-8') as f:
+                ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                f.write(f'[{ts}]\n  RAW:     {transcription.strip()}\n  POLISHED: {polished}\n\n')
+        except Exception:
+            pass
+
+        # Strip accidental [TRANSCRIPT] / [/TRANSCRIPT] tags the model may echo
+        polished = polished.replace('[TRANSCRIPT]', '').replace('[/TRANSCRIPT]', '').strip()
+
+        # Safety net: intercept old sentinel if model still produces it
+        if polished == 'NOTHING TO POLISH':
+            ConfigManager.console_print('LLM polish: sentinel intercepted — returning raw.')
+            return transcription
+
+        # Safety net: if LLM wiped all content but input was non-empty, fall back to raw
+        if not polished and transcription.strip():
+            ConfigManager.console_print('LLM polish: empty output on non-empty input — returning raw.')
+            return transcription
+
+        # Safety net: catch wholesale hallucination (< 30% of output words appear in input)
+        if len(transcription.strip()) > 20:
+            overlap = _word_overlap_ratio(transcription, polished)
+            if overlap < 0.30:
+                ConfigManager.console_print(f'LLM polish: low word overlap ({overlap:.0%}) — likely hallucination, returning raw.')
+                return transcription
+
+        # Length guard as final catch-all
         if len(transcription.strip()) > 10 and len(polished) > len(transcription.strip()) * 3:
-            ConfigManager.console_print(f'LLM polish hallucination detected ({len(polished)} chars out vs {len(transcription.strip())} in), returning raw transcription')
+            ConfigManager.console_print('LLM polish: output 3x longer than input — returning raw.')
             return transcription
 
         return polished
@@ -149,9 +207,23 @@ def transcribe(audio_data, local_model=None):
     if audio_data is None:
         return ''
 
+    # Skip STT only on a completely dead signal (muted mic, no input device).
+    # Threshold is intentionally very low — only catches zero/near-zero input, not quiet speech.
+    rms = float(np.sqrt(np.mean(audio_data.astype(np.float32) ** 2)))
+    if rms < 30:
+        ConfigManager.console_print(f'Audio signal absent (RMS={rms:.0f}), skipping transcription.')
+        return ''
+
     if ConfigManager.get_config_value('model_options', 'use_api'):
         transcription = transcribe_api(audio_data)
     else:
         transcription = transcribe_local(audio_data, local_model)
+
+    ConfigManager.console_print(f'Whisper output: "{transcription.strip()}"')
+
+    # Discard known Whisper hallucinations produced on silence.
+    if transcription.strip().lower() in _WHISPER_HALLUCINATIONS:
+        ConfigManager.console_print(f'Whisper hallucination discarded: "{transcription.strip()}"')
+        return ''
 
     return post_process_transcription(transcription)
