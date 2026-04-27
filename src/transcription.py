@@ -26,6 +26,18 @@ _WHISPER_HALLUCINATIONS = frozenset({
 })
 
 
+# Whisper double-insert: model inserts punctuation comma AND keeps spoken word "comma"
+_SPOKEN_COMMA_DOUBLE = re.compile(r',\s*comma\s*,', re.IGNORECASE)
+# Inline spoken command: "word comma word" with no surrounding commas
+_SPOKEN_COMMA_INLINE = re.compile(r'(?<=\w)\s+comma(?=\s+\w)', re.IGNORECASE)
+
+
+def _normalize_spoken_symbols(text: str) -> str:
+    text = _SPOKEN_COMMA_DOUBLE.sub(',', text)
+    text = _SPOKEN_COMMA_INLINE.sub(',', text)
+    return text
+
+
 def _word_overlap_ratio(source: str, candidate: str) -> float:
     """Fraction of candidate words that appear in source (case-insensitive)."""
     source_words = set(re.findall(r'\b[a-zA-Z]+\b', source.lower()))
@@ -189,6 +201,8 @@ def llm_polish(transcription):
 def post_process_transcription(transcription):
     transcription = transcription.strip()
 
+    transcription = _normalize_spoken_symbols(transcription)
+
     # LLM polish runs on the raw stripped transcript, before whitespace/case tweaks
     transcription = llm_polish(transcription)
 
@@ -225,5 +239,13 @@ def transcribe(audio_data, local_model=None):
     if transcription.strip().lower() in _WHISPER_HALLUCINATIONS:
         ConfigManager.console_print(f'Whisper hallucination discarded: "{transcription.strip()}"')
         return ''
+
+    # Strip trailing "Thank you" appended by Whisper at the end of real transcriptions.
+    stripped = re.sub(r'[,]?\s*\bthank you[.!]?\s*$', '', transcription, flags=re.IGNORECASE).strip()
+    if stripped != transcription.strip():
+        ConfigManager.console_print(f'Trailing thank-you stripped: "{transcription.strip()}" → "{stripped}"')
+        if not stripped:
+            return ''
+        transcription = stripped
 
     return post_process_transcription(transcription)
