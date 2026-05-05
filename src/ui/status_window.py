@@ -15,7 +15,7 @@ class StatusWindow(BaseWindow):
         """
         Initialize the status window.
         """
-        super().__init__('WhisperWriter Status', 320, 120)
+        super().__init__('WhisperWriter Status', 220, 70, show_title_bar=False)
         self.initStatusUI()
         self.statusSignal.connect(self.updateStatus)
 
@@ -24,16 +24,16 @@ class StatusWindow(BaseWindow):
         Initialize the status user interface.
         """
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        
+
         status_layout = QHBoxLayout()
         status_layout.setContentsMargins(0, 0, 0, 0)
 
         self.icon_label = QLabel()
-        self.icon_label.setFixedSize(32, 32)
+        self.icon_label.setFixedSize(48, 48)
         microphone_path = os.path.join('assets', 'microphone.png')
         pencil_path = os.path.join('assets', 'pencil.png')
-        self.microphone_pixmap = QPixmap(microphone_path).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.pencil_pixmap = QPixmap(pencil_path).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.microphone_pixmap = QPixmap(microphone_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.pencil_pixmap = QPixmap(pencil_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.icon_label.setPixmap(self.microphone_pixmap)
         self.icon_label.setAlignment(Qt.AlignCenter)
 
