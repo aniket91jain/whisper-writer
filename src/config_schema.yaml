@@ -168,7 +168,12 @@ llm_polish:
   model:
     value: openai/gpt-oss-120b
     type: str
-    description: "The model to use for polishing (OpenAI-compatible)."
+    description: "The Groq model used for polish. gpt-oss-120b is the recommended default; gpt-oss-20b is faster but slightly lower quality; llama-3.3 and llama-3.1 are alternates. Changing this auto-renders a dropdown in the Settings window via the options list below."
+    options:
+      - openai/gpt-oss-120b
+      - openai/gpt-oss-20b
+      - llama-3.3-70b-versatile
+      - llama-3.1-8b-instant
   base_url:
     value: https://api.groq.com/openai/v1
     type: str

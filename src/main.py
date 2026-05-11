@@ -13,7 +13,7 @@ from ui.main_window import MainWindow
 from ui.settings_window import SettingsWindow
 from ui.status_window import StatusWindow
 from ui.transcript_history_window import TranscriptHistoryWindow
-from transcription import create_local_model
+from transcription import create_local_model, prewarm_groq_connection
 from input_simulation import InputSimulator
 from utils import ConfigManager
 
@@ -53,6 +53,14 @@ class WhisperWriterApp(QObject):
         model_path = model_options.get('local', {}).get('model_path')
         self.local_model = create_local_model() if not model_options.get('use_api') else None
 
+        # Pre-warm the Groq HTTPS connection in a daemon thread so the first
+        # dictation post-launch doesn't pay the TLS handshake (~200-400ms).
+        # Fires only when Groq is actually in the path — either as the STT
+        # backend (use_api) or as the polish backend (llm_polish.enabled).
+        if model_options.get('use_api') or ConfigManager.get_config_value('llm_polish', 'enabled'):
+            from threading import Thread
+            Thread(target=prewarm_groq_connection, daemon=True).start()
+
         self.result_thread = None
         self._recording_started_at = 0.0
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -75,7 +83,9 @@ class WhisperWriterApp(QObject):
         """
         Create the system tray icon and its context menu.
         """
-        self.tray_icon = QSystemTrayIcon(QIcon(os.path.join('assets', 'ww-logo.png')), self.app)
+        # Mic icon matches Mobile's tray glyph and gives the system tray a
+        # functional read (this is a dictation app) instead of the W logo.
+        self.tray_icon = QSystemTrayIcon(QIcon(os.path.join('assets', 'microphone.png')), self.app)
 
         tray_menu = QMenu()
 

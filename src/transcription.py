@@ -9,6 +9,43 @@ from utils import ConfigManager
 from engine.polish.post_llm_repair import apply as apply_post_llm_repair
 
 
+# Cache of OpenAI SDK clients keyed by base_url. The SDK uses httpx with
+# connection pooling internally, so sharing the client across calls reuses
+# the TLS connection and skips the handshake (~200-400ms) on every polish
+# or transcribe call after the first.
+_OPENAI_CLIENTS: dict = {}
+
+
+def get_openai_client(base_url: str = 'https://api.groq.com/openai/v1'):
+    """Return a cached OpenAI SDK client for the given base URL.
+
+    The cache is per-base_url so different endpoints (Groq vs OpenAI vs
+    a local proxy) don't share a client. API key is read from env at
+    first-use; rotating the key mid-session requires an app restart.
+    """
+    if base_url not in _OPENAI_CLIENTS:
+        api_key = os.getenv('GROQ_API_KEY') or os.getenv('OPENAI_API_KEY')
+        _OPENAI_CLIENTS[base_url] = OpenAI(api_key=api_key, base_url=base_url)
+    return _OPENAI_CLIENTS[base_url]
+
+
+def prewarm_groq_connection():
+    """Best-effort HTTPS pre-warm to skip the TLS handshake on first dictation.
+
+    Calls client.models.list() against the Groq endpoint — cheap, exercises
+    auth (surfacing a bad API key at startup instead of mid-dictation), and
+    primes DNS + TLS + httpx connection pool. Failures are swallowed; pre-
+    warm is optional, not a startup blocker. Intended to be fired on a
+    daemon thread at app initialization.
+    """
+    try:
+        client = get_openai_client('https://api.groq.com/openai/v1')
+        client.models.list()
+        ConfigManager.console_print('Groq connection pre-warmed.')
+    except Exception as e:
+        ConfigManager.console_print(f'Groq pre-warm failed (non-fatal): {e}')
+
+
 class TranscriptionAPIError(Exception):
     """Raised when the remote transcription API call fails (no internet,
     timeout, empty response). Caught by result_thread.run() so the captured
@@ -322,14 +359,10 @@ def transcribe_local(audio_data, local_model=None):
 
 def transcribe_api(audio_data):
     model_options = ConfigManager.get_config_section('model_options')
-    # Prefer GROQ_API_KEY; fall back to OPENAI_API_KEY for vanilla OpenAI usage
-    api_key = os.getenv('GROQ_API_KEY') or os.getenv('OPENAI_API_KEY') or None
+    base_url = model_options['api']['base_url'] or 'https://api.openai.com/v1'
 
     try:
-        client = OpenAI(
-            api_key=api_key,
-            base_url=model_options['api']['base_url'] or 'https://api.openai.com/v1',
-        )
+        client = get_openai_client(base_url)
 
         byte_io = io.BytesIO()
         sample_rate = ConfigManager.get_config_section('recording_options').get('sample_rate') or 16000
@@ -373,10 +406,7 @@ def llm_polish(transcription):
         return transcription
 
     try:
-        client = OpenAI(
-            api_key=api_key,
-            base_url=config.get('base_url') or 'https://api.groq.com/openai/v1',
-        )
+        client = get_openai_client(config.get('base_url') or 'https://api.groq.com/openai/v1')
         # gpt-oss-* family is a reasoning model on Groq; without reasoning_effort
         # it burns tokens on chain-of-thought and runs slower. 'low' is enough
         # for the mechanical polish task — verified empirically (Section 7 of
