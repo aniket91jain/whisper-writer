@@ -22,7 +22,7 @@ class StatusWindow(BaseWindow):
         """
         Initialize the status window.
         """
-        super().__init__('WhisperWriter Status', _ICON_SIZE[0], _ICON_SIZE[1],
+        super().__init__('Whisper PC Status', _ICON_SIZE[0], _ICON_SIZE[1],
                          show_title_bar=False, background_alpha=180)
         self.initStatusUI()
         self.statusSignal.connect(self.updateStatus)

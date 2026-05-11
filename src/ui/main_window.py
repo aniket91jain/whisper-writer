@@ -16,7 +16,7 @@ class MainWindow(BaseWindow):
         """
         Initialize the main window.
         """
-        super().__init__('WhisperWriter', 320, 180)
+        super().__init__('Whisper PC', 320, 180)
         self.initMainUI()
 
     def initMainUI(self):

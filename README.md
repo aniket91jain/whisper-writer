@@ -1,14 +1,14 @@
-# <img src="./assets/ww-logo.png" alt="WhisperWriter icon" width="25" height="25"> WhisperWriter
+# <img src="./assets/ww-logo.png" alt="Whisper PC icon" width="25" height="25"> Whisper PC
 
 ![version](https://img.shields.io/badge/version-1.0.1-blue)
 
 <p align="center">
-    <img src="./assets/ww-demo-image-02.gif" alt="WhisperWriter demo gif" width="340" height="136">
+    <img src="./assets/ww-demo-image-02.gif" alt="Whisper PC demo gif" width="340" height="136">
 </p>
 
-**Update (2024-05-28):** I've just merged in a major rewrite of WhisperWriter! We've migrated from using `tkinter` to using `PyQt5` for the UI, added a new settings window for configuration, a new continuous recording mode, support for a local API, and more! Please be patient as I work out any bugs that may have been introduced in the process. If you encounter any problems, please [open a new issue](https://github.com/savbell/whisper-writer/issues)!
+**Update (2024-05-28):** I've just merged in a major rewrite of Whisper PC! We've migrated from using `tkinter` to using `PyQt5` for the UI, added a new settings window for configuration, a new continuous recording mode, support for a local API, and more! Please be patient as I work out any bugs that may have been introduced in the process. If you encounter any problems, please [open a new issue](https://github.com/savbell/whisper-writer/issues)!
 
-WhisperWriter is a small speech-to-text app that uses [OpenAI's Whisper model](https://openai.com/research/whisper) to auto-transcribe recordings from a user's microphone to the active window.
+Whisper PC is a small speech-to-text app that uses [OpenAI's Whisper model](https://openai.com/research/whisper) to auto-transcribe recordings from a user's microphone to the active window.
 
 Once started, the script runs in the background and waits for a keyboard shortcut to be pressed (`ctrl+shift+space` by default). When the shortcut is pressed, the app starts recording from your microphone. There are four recording modes to choose from:
 - `continuous` (default): Recording will stop after a long enough pause in your speech. The app will transcribe the text and then start recording again. To stop listening, press the keyboard shortcut again.
@@ -20,7 +20,7 @@ You can change the keyboard shortcut (`activation_key`) and recording mode in th
 
 The transcription can either be done locally through the [faster-whisper Python package](https://github.com/SYSTRAN/faster-whisper/) or through a request to [OpenAI's API](https://platform.openai.com/docs/guides/speech-to-text). By default, the app will use a local model, but you can change this in the [Configuration Options](#configuration-options). If you choose to use the API, you will need to either provide your OpenAI API key or change the base URL endpoint.
 
-**Fun fact:** Almost the entirety of the initial release of the project was pair-programmed with [ChatGPT-4](https://openai.com/product/gpt-4) and [GitHub Copilot](https://github.com/features/copilot) using VS Code. Practically every line, including most of this README, was written by AI. After the initial prototype was finished, WhisperWriter was used to write a lot of the prompts as well!
+**Fun fact:** Almost the entirety of the initial release of the project was pair-programmed with [ChatGPT-4](https://openai.com/product/gpt-4) and [GitHub Copilot](https://github.com/features/copilot) using VS Code. Practically every line, including most of this README, was written by AI. After the initial prototype was finished, Whisper PC was used to write a lot of the prompts as well!
 
 ## Getting Started
 
@@ -100,15 +100,15 @@ pip install -r requirements.txt
 python run.py
 ```
 
-#### 5. Configure and start WhisperWriter:
+#### 5. Configure and start Whisper PC:
 On first run, a Settings window should appear. Once configured and saved, another window will open. Press "Start" to activate the keyboard listener. Press the activation key (`ctrl+shift+space` by default) to start recording and transcribing to the active window.
 
 ### Configuration Options
 
-WhisperWriter uses a configuration file to customize its behaviour. To set up the configuration, open the Settings window:
+Whisper PC uses a configuration file to customize its behaviour. To set up the configuration, open the Settings window:
 
 <p align="center">
-    <img src="./assets/ww-settings-demo.gif" alt="WhisperWriter Settings window demo gif" width="350" height="350">
+    <img src="./assets/ww-settings-demo.gif" alt="Whisper PC Settings window demo gif" width="350" height="350">
 </p>
 
 #### Model Options

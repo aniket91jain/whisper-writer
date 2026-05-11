@@ -38,7 +38,7 @@ class BaseWindow(QMainWindow):
             title_bar_layout.setContentsMargins(0, 0, 0, 0)
 
             # Add the title label
-            title_label = QLabel('WhisperWriter')
+            title_label = QLabel('Whisper PC')
             title_label.setFont(QFont('Segoe UI', 12, QFont.Bold))
             title_label.setAlignment(Qt.AlignCenter)
             title_label.setStyleSheet("color: #404040;")

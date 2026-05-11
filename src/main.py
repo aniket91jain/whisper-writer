@@ -18,7 +18,7 @@ from input_simulation import InputSimulator
 from utils import ConfigManager
 
 
-class WhisperWriterApp(QObject):
+class WhisperPCApp(QObject):
     def __init__(self):
         """
         Initialize the application, opening settings window if no configuration file is found.
@@ -89,7 +89,7 @@ class WhisperWriterApp(QObject):
 
         tray_menu = QMenu()
 
-        show_action = QAction('WhisperWriter Main Menu', self.app)
+        show_action = QAction('Whisper PC Main Menu', self.app)
         show_action.triggered.connect(self.main_window.show)
         tray_menu.addAction(show_action)
 
@@ -248,5 +248,5 @@ class WhisperWriterApp(QObject):
 
 
 if __name__ == '__main__':
-    app = WhisperWriterApp()
+    app = WhisperPCApp()
     app.run()
