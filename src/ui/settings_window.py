@@ -9,6 +9,7 @@ from PyQt5.QtCore import Qt, QCoreApplication, QProcess, pyqtSignal
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from ui.base_window import BaseWindow
+from ui.custom_vocabulary_tab import CustomVocabularyTab
 from utils import ConfigManager
 
 load_dotenv()
@@ -29,6 +30,8 @@ class SettingsWindow(BaseWindow):
         self.main_layout.addWidget(self.tabs)
 
         self.create_tabs()
+        self.custom_vocab_tab = CustomVocabularyTab()
+        self.tabs.addTab(self.custom_vocab_tab, "Custom Vocabulary")
         self.create_buttons()
 
         # Connect the use_api checkbox state change
@@ -176,6 +179,12 @@ class SettingsWindow(BaseWindow):
         """Save the settings to the config file and .env file."""
         self.iterate_settings(self.save_setting)
 
+        # Flush the Custom Vocabulary tab's in-memory state into ConfigManager
+        # before save_config writes to disk. Schema-driven iterate_settings
+        # skips structured proper_nouns (type='dict') so this is the only path
+        # that persists user edits to the list.
+        self.custom_vocab_tab.save_to_config()
+
         # Save the API key to the .env file
         api_key = ConfigManager.get_config_value('model_options', 'api', 'api_key') or ''
         set_key('.env', 'OPENAI_API_KEY', api_key)
@@ -200,6 +209,7 @@ class SettingsWindow(BaseWindow):
         """Reset the settings to the saved values."""
         ConfigManager.reload_config()
         self.update_widgets_from_config()
+        self.custom_vocab_tab.load_from_config()
 
     def update_widgets_from_config(self):
         """Update all widgets with values from the current configuration."""
@@ -294,6 +304,7 @@ class SettingsWindow(BaseWindow):
         if reply == QMessageBox.Yes:
             ConfigManager.reload_config()  # Revert to last saved configuration
             self.update_widgets_from_config()
+            self.custom_vocab_tab.load_from_config()
             self.settings_closed.emit()
             super().closeEvent(event)
         else:
