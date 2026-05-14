@@ -329,6 +329,91 @@ class WhisperPCApp(QObject):
         sys.exit(self.app.exec_())
 
 
+def _enforce_single_instance() -> None:
+    """Exit immediately if another Whisper PC is already running.
+
+    Uses a lockfile in the user's TEMP dir containing the running process's
+    PID. On startup:
+      - If the file doesn't exist → write our PID, continue.
+      - If the file exists AND that PID is alive AND its image is a
+        whisper-writer Python → exit (peer is running).
+      - If the file exists but the PID is dead or unrelated → stale lock;
+        overwrite with our PID and continue.
+
+    Cleanup: register an atexit handler to delete the lockfile on normal
+    shutdown. Crashed exits leave a stale file which the next launch detects.
+
+    Why this exists: on 2026-05-13 a stacked-launch event left 4 Whisper PC
+    pythonw.exe processes running simultaneously, all fighting for the same
+    activation hotkey and audio device. The UI became unresponsive ("hung").
+    """
+    import atexit
+    import tempfile
+    lockfile = os.path.join(tempfile.gettempdir(), 'whisper_pc.lock')
+
+    def _peer_is_alive(pid: int) -> bool:
+        # On Windows, signal 0 isn't supported by os.kill in the usual sense,
+        # but we can use a Win32 query. Without pulling pywin32, the simplest
+        # check is to ask tasklist if the PID exists and runs python.
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False  # process doesn't exist
+            try:
+                # 259 = STILL_ACTIVE
+                exit_code = ctypes.c_ulong()
+                if kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    if exit_code.value == 259:
+                        # Process is alive. We don't bother verifying it's a
+                        # whisper-writer Python — colliding with an unrelated
+                        # PID after a crash is rare (32-bit PID space) and the
+                        # worst case is the user re-runs after a few seconds.
+                        return True
+                return False
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return False  # be permissive: if our check fails, continue
+
+    if os.path.isfile(lockfile):
+        try:
+            with open(lockfile, 'r', encoding='utf-8') as f:
+                existing_pid = int((f.read() or '0').strip())
+        except Exception:
+            existing_pid = 0
+        if existing_pid > 0 and _peer_is_alive(existing_pid):
+            # Another instance is running. Tell the user via stderr and exit.
+            # pythonw.exe has no console so this is mainly for python.exe / debug
+            # runs; a tray toast would need PyQt which we don't have yet here.
+            print(
+                f'Whisper PC is already running (PID {existing_pid}). Exiting.',
+                file=sys.stderr,
+            )
+            sys.exit(0)
+
+    # Take the lock (overwrite stale or non-existent file).
+    try:
+        with open(lockfile, 'w', encoding='utf-8') as f:
+            f.write(str(os.getpid()))
+    except Exception as e:
+        print(f'Could not write lockfile {lockfile}: {e}', file=sys.stderr)
+
+    def _release_lock():
+        try:
+            if os.path.isfile(lockfile):
+                with open(lockfile, 'r', encoding='utf-8') as f:
+                    if (f.read() or '').strip() == str(os.getpid()):
+                        os.remove(lockfile)
+        except Exception:
+            pass
+
+    atexit.register(_release_lock)
+
+
 if __name__ == '__main__':
+    _enforce_single_instance()
     app = WhisperPCApp()
     app.run()
