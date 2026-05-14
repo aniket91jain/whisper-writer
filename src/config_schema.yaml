@@ -390,7 +390,33 @@ llm_polish:
           Input: "remember to call Adhiraj tomorrow scratch that Kanika"
           Output: "Remember to call Kanika tomorrow."
 
-      LISTS: explicit enumeration (first/second/third) → numbered list with digits (1./2./3.); parallel items → bullet list with hyphen markers.
+      LISTS: format list-like dictations on separate lines. This rule overrides the FORBIDDEN clause below — adding line breaks and bullet/number markers IS allowed for this rule.
+
+        NUMBERED LIST trigger — emit each item on its own line, prefixed "1. ", "2. ", "3. " etc:
+          (a) Word-form ordinals: "first <item>, second <item>, third <item>" ...
+          (b) Digit-form enumeration where digit is clearly an ordinal, not a quantity. The strongest signal is digit + PLURAL noun ("1 eggs", "2 apples") — singular nouns mean quantity ("1 egg", "2 apple"-ish would be a count). A preceding structural cue like "the following" / "the list is" also tips the balance toward enumeration.
+
+        BULLETED LIST trigger — emit each item on its own line, prefixed "- " (hyphen + space):
+          Parallel items (same grammatical category, no verbs between) following a structural cue like "the following", "the list is", "I need", "buy", "here are", etc. Items are typically comma-separated in the raw transcript.
+
+        EXAMPLES:
+          Input: "first thought eggs second milk third bread"
+          Output: "1. Eggs\n2. Milk\n3. Bread"
+
+          Input: "buy the following 1 eggs 2 milk 3 bread"
+          Output: "Buy the following:\n1. Eggs\n2. Milk\n3. Bread"
+
+          Input: "I have to buy the following things from the shop eggs, milk, bread, I think that's it"
+          Output: "I have to buy the following things from the shop:\n- Eggs\n- Milk\n- Bread\n\nI think that's it."
+
+          Input: "let me list them apple banana cherry"
+          Output: "Let me list them:\n- Apple\n- Banana\n- Cherry"
+
+          Input: "I have 3 cats and 2 dogs"   (no structural cue, narrative not list)
+          Output: "I have 3 cats and 2 dogs." (unchanged — quantity context)
+
+          Input: "I bought 1 egg today"   (singular noun → quantity)
+          Output: "I bought 1 egg today." (unchanged)
 
       {{PROPER_NOUNS_BLOCK}}
 
