@@ -26,6 +26,13 @@ class _DictAddSignal(QObject):
     added = pyqtSignal(list)
 
 
+class _ShowRequestSignal(QObject):
+    """Carrier QObject for the surface-window event from a duplicate launch.
+    The Win32 event listener thread emits this; the queued connection delivers
+    it to the GUI thread for safe widget access."""
+    requested = pyqtSignal()
+
+
 class WhisperPCApp(QObject):
     def __init__(self):
         """
@@ -109,6 +116,24 @@ class WhisperPCApp(QObject):
 
         self.create_tray_icon()
         self.key_listener.start()  # auto-start listening; no need to press Start in the window
+
+        # Listen for "another launch happened, please surface the main window"
+        # signals from a Win32 named event. Wired here (after main_window
+        # exists) rather than at __init__ so the slot has something to show.
+        self._show_request_signal = _ShowRequestSignal(self)
+        self._show_request_signal.requested.connect(self._surface_main_window)
+        _start_show_event_listener(self._show_request_signal.requested.emit)
+
+    def _surface_main_window(self):
+        """Show + raise + activate the main window in response to a duplicate
+        launch. Restores from minimized if needed."""
+        win = self.main_window
+        if win.isMinimized():
+            win.showNormal()
+        else:
+            win.show()
+        win.raise_()
+        win.activateWindow()
 
     def create_tray_icon(self):
         """
@@ -329,88 +354,120 @@ class WhisperPCApp(QObject):
         sys.exit(self.app.exec_())
 
 
+# Singleton-coordination kernel objects. Names are per-session (no `Local\`
+# prefix needed; un-prefixed defaults to Local\). Bumping the version suffix is
+# how you force-restart all instances (old/new versions won't see each other).
+_SINGLETON_MUTEX_NAME = 'WhisperPC.SingleInstance.v3'
+_SINGLETON_SHOW_EVENT_NAME = 'WhisperPC.ShowEvent.v3'
+
+# Module-level holder so the mutex handle isn't garbage-collected while the
+# process is alive. Closing it would let a second instance through.
+_SINGLETON_MUTEX_HANDLE = None
+
+
+def _signal_existing_instance() -> bool:
+    """Open the named show-event and pulse it. Returns True on success."""
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        EVENT_MODIFY_STATE = 0x0002
+        handle = kernel32.OpenEventW(EVENT_MODIFY_STATE, False, _SINGLETON_SHOW_EVENT_NAME)
+        if not handle:
+            return False
+        try:
+            return bool(kernel32.SetEvent(handle))
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return False
+
+
 def _enforce_single_instance() -> None:
     """Exit immediately if another Whisper PC is already running.
 
-    Uses a lockfile in the user's TEMP dir containing the running process's
-    PID. On startup:
-      - If the file doesn't exist → write our PID, continue.
-      - If the file exists AND that PID is alive AND its image is a
-        Whisper PC Python → exit (peer is running).
-      - If the file exists but the PID is dead or unrelated → stale lock;
-        overwrite with our PID and continue.
+    Uses a Win32 named mutex for atomic peer detection (the previous
+    PID-lockfile scheme was racy: two simultaneous launches could both observe
+    "no lockfile" and both proceed). CreateMutexW returns ERROR_ALREADY_EXISTS
+    when a second caller hits the same name — that's a single kernel-level
+    decision, no race window.
 
-    Cleanup: register an atexit handler to delete the lockfile on normal
-    shutdown. Crashed exits leave a stale file which the next launch detects.
+    On a duplicate launch we also pulse a named auto-reset event so the
+    *running* instance can surface its main window — that's the
+    'focus-on-relaunch' UX. The listener is wired up later from
+    WhisperPCApp.initialize_components after the main window exists.
 
     Why this exists: on 2026-05-13 a stacked-launch event left 4 Whisper PC
-    pythonw.exe processes running simultaneously, all fighting for the same
-    activation hotkey and audio device. The UI became unresponsive ("hung").
+    pythonw.exe processes running simultaneously; the lockfile fix added then
+    reduced but did not eliminate the race. On 2026-05-15 it recurred, so this
+    upgrades to a true OS-level mutex.
     """
-    import atexit
-    import tempfile
-    lockfile = os.path.join(tempfile.gettempdir(), 'whisper_pc.lock')
-
-    def _peer_is_alive(pid: int) -> bool:
-        # On Windows, signal 0 isn't supported by os.kill in the usual sense,
-        # but we can use a Win32 query. Without pulling pywin32, the simplest
-        # check is to ask tasklist if the PID exists and runs python.
-        try:
-            import ctypes
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            kernel32 = ctypes.windll.kernel32
-            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-            if not handle:
-                return False  # process doesn't exist
-            try:
-                # 259 = STILL_ACTIVE
-                exit_code = ctypes.c_ulong()
-                if kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-                    if exit_code.value == 259:
-                        # Process is alive. We don't bother verifying it's a
-                        # Whisper PC Python — colliding with an unrelated
-                        # PID after a crash is rare (32-bit PID space) and the
-                        # worst case is the user re-runs after a few seconds.
-                        return True
-                return False
-            finally:
-                kernel32.CloseHandle(handle)
-        except Exception:
-            return False  # be permissive: if our check fails, continue
-
-    if os.path.isfile(lockfile):
-        try:
-            with open(lockfile, 'r', encoding='utf-8') as f:
-                existing_pid = int((f.read() or '0').strip())
-        except Exception:
-            existing_pid = 0
-        if existing_pid > 0 and _peer_is_alive(existing_pid):
-            # Another instance is running. Tell the user via stderr and exit.
-            # pythonw.exe has no console so this is mainly for python.exe / debug
-            # runs; a tray toast would need PyQt which we don't have yet here.
-            print(
-                f'Whisper PC is already running (PID {existing_pid}). Exiting.',
-                file=sys.stderr,
-            )
-            sys.exit(0)
-
-    # Take the lock (overwrite stale or non-existent file).
+    global _SINGLETON_MUTEX_HANDLE
     try:
-        with open(lockfile, 'w', encoding='utf-8') as f:
-            f.write(str(os.getpid()))
-    except Exception as e:
-        print(f'Could not write lockfile {lockfile}: {e}', file=sys.stderr)
+        import ctypes
+    except Exception:
+        return  # be permissive if ctypes is unavailable (non-Windows debug)
+    kernel32 = ctypes.windll.kernel32
+    ERROR_ALREADY_EXISTS = 183
+    handle = kernel32.CreateMutexW(None, False, _SINGLETON_MUTEX_NAME)
+    if not handle:
+        # Could not create the mutex (rare). Fail open — better to launch than
+        # to silently refuse to start.
+        return
+    if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        kernel32.CloseHandle(handle)
+        signaled = _signal_existing_instance()
+        # pythonw.exe has no console; this print only matters for python.exe debug
+        # runs. The tray toast for the user comes from the existing instance
+        # (which surfaces its window in response to the event we just pulsed).
+        print(
+            'Whisper PC is already running. '
+            + ('Surfacing the existing window.' if signaled else 'Exiting.'),
+            file=sys.stderr,
+        )
+        sys.exit(0)
+    # We're the first instance. Hold the handle for the process lifetime so
+    # the mutex object stays alive in the kernel namespace and blocks duplicates.
+    _SINGLETON_MUTEX_HANDLE = handle
 
-    def _release_lock():
-        try:
-            if os.path.isfile(lockfile):
-                with open(lockfile, 'r', encoding='utf-8') as f:
-                    if (f.read() or '').strip() == str(os.getpid()):
-                        os.remove(lockfile)
-        except Exception:
-            pass
 
-    atexit.register(_release_lock)
+def _start_show_event_listener(on_show_callback) -> None:
+    """Spawn a daemon thread that waits on the show-event and invokes the
+    callback whenever a duplicate-launch fires it. Callback is invoked from a
+    background thread; the caller is responsible for marshalling onto the Qt
+    main thread (we do that via a queued pyqtSignal in WhisperPCApp)."""
+    try:
+        import ctypes
+    except Exception:
+        return
+    from threading import Thread
+
+    kernel32 = ctypes.windll.kernel32
+    EVENT_MODIFY_STATE = 0x0002
+    SYNCHRONIZE = 0x00100000
+    EVENT_ALL_ACCESS = 0x1F0003
+    INFINITE = 0xFFFFFFFF
+    WAIT_OBJECT_0 = 0
+
+    # CreateEventW with bManualReset=False (auto-reset) and bInitialState=False.
+    # If the event already exists (e.g. a stale handle from a crashed previous
+    # instance — unlikely since events die when last handle closes), we just
+    # reuse it.
+    event_handle = kernel32.CreateEventW(None, False, False, _SINGLETON_SHOW_EVENT_NAME)
+    if not event_handle:
+        return
+
+    def _listen():
+        while True:
+            result = kernel32.WaitForSingleObject(event_handle, INFINITE)
+            if result == WAIT_OBJECT_0:
+                try:
+                    on_show_callback()
+                except Exception:
+                    pass
+            else:
+                break  # event handle closed or wait failed
+
+    Thread(target=_listen, daemon=True).start()
 
 
 if __name__ == '__main__':
